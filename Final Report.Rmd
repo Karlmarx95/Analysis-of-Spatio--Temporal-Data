@@ -1,0 +1,394 @@
+---
+title: "Analysis of Spatio-Temporal Data"
+author: "Karlmarx Thangamani"
+date: "March 16, 2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+library(gstat)
+library(rgdal)
+library(sp)
+library(raster)
+library(xts)
+library(tmap)
+library(rgl)
+library(spatstat)
+```
+<center><h2>Diversity of the bird species analysis on public conservation land from 2013 to 2016, New Zealand </h2></center>
+<center><h3>Institute for Geoinformatics, 2, 48149 Heisenbergstrasse,
+<br>University of Muenster, Germany
+</h3></center>
+
+## Introduction
+   The status of our bird communities is an important indicator of the condition of our ecosystems. Many indigenous birds play key ecological roles, including dispersing seeds and pollinating flowers. A reduction in the distribution and/or decline in numbers for common and widespread species can equate to large losses of individuals and ecosystem integrity. From the composition of bird communities across public conservation land (forest and non-forest sites) we can monitor how they change over year.
+<br>In this project, the bird diversity analysis had been made and this process can be done efficiently with this R language. From the learning period of the course 'Analysis of Spatio-Temporal Data' many analysis techniques had been applied in this project to bring the output. The method is also reproduced in R-markdown file.
+
+##Data used for the project
+  In this project, I have used two shape files and one csv file for the analysis.
+
+### Datasets discription
+  1. Bird species on public conservation land estimated diversity data- which contains the name, locations, diversity values, altitude, slope, aspect, height, year, canopy percentage and land cover. The data contains the four years of bird species diversity, so the analysis can be shown only by years. A Bayesian hierarchical multispecies model was used to determine the total number of different species occupying a site i.e. diversity. And the locations for each year are although different but from the same region. In this project, total diversity of the bird species in numbers are taken for the analysis.
+  2. New zealand country shapefile
+  3. West Coast State of New Zealand shapefile - as the region is remote and native temperate rain forest with a coastal plains, the birds community plays a major ecological roles as mentioned before. So this state in New zealand country was chosen.  
+
+Here we have loaded the tabular csv data and creates latitude and longitude of type numeric which becomes more general test of it being interpretable as numbers. Then the coordinate reference system was set to WGS 1984. Then the details of the 759 points are mentioned in the summary of the diversity data.  
+```{r}
+diversity_data <- read.csv (file ='./bird-species-on-public-conservation-land-estimated-diversity.csv', header = TRUE, sep = ",")
+diversity_data$Latitude = as.numeric(as.character(diversity_data$Lat_jitter))
+diversity_data$Longitude = as.numeric(as.character(diversity_data$Long_jitte))
+diversity_data = na.omit(diversity_data) #remove this line after cleaning the data
+coordinates(diversity_data)=~Longitude+Latitude
+latlong<-coordinates(diversity_data)
+proj4string(diversity_data) = CRS("+init=epsg:4326")
+summary(latlong)
+summary(diversity_data)
+```
+
+Next the shapefiles are added and spatial transformation has been done. As the projection is in the UTM, the New Zealand country stretched fully and viewed.
+```{r}
+shapel <- readOGR(dsn="Shapefile New zealand/NZL_adm1.shp")
+shapes <- readOGR(dsn="Shapefile New zealand/West Coast.shp")
+diversity_data <- spTransform(diversity_data, CRS(proj4string(shapes))) 
+diversity_data <- spTransform(diversity_data, CRS(proj4string(shapel))) 
+plot(shapel, axes=T, asp=1, main="map of New Zealand")
+```
+
+Here the diversity location data is visualised in the zoomed map of New Zealand country and particularly viewed for the West Coast state of New Zealand.  
+```{r}
+#Extraction of the West Coast state diversity data from the whole data 
+data_wc<-diversity_data[shapes, ]
+data_wc1<-diversity_data[shapel, ]
+plot(shapel, axes=T,xlim=c(166.5,178.2),ylim=c(-47,-34),asp=1, main="Zoomed map of New Zealand")
+plot(data_wc1, add=T, col='darkorchid')
+plot(shapes, axes=T, asp=1, main="map of New Zealand's West Coast State")
+plot(data_wc, add=T, col='darkorchid')
+```
+
+## Methods used
+  1. Density formation of the data
+  2. Inverse Distance Weighted Interpolation method
+
+### Density of the data
+In order to create the density of the points in the West Coast state, coordinates are setted, bounding box and point pattern dataset had been formed.
+```{r}
+# writing the new coordinates for the density map
+data_wc$Easting<-coordinates(data_wc)[,1]
+data_wc$Northing<-coordinates(data_wc)[,2]
+
+#Bounding box forming
+data_wc.chull <- bounding.box.xy(x = data_wc$Easting, y = data_wc$Northing)
+
+#forming the point pattern dataset in two dimension plane
+data_wc.ppp <- ppp(x = data_wc$Easting, y = data_wc$Northing, window = data_wc.chull)
+```
+
+Density map forming with the sigma value which extracts the estimated parameter from the fitted data _wc data model (point pattern dataset). As the data on the whole are evenly distributed, so the density map is used for the presence of the diversity.
+<br>
+Here the density map is shown with two sigma values. The high value in the windows represents the more number of plots are located closely.
+```{r}
+# Density map
+plot(density(data_wc.ppp, sigma = 0.010))
+plot(density(data_wc.ppp, sigma = 0.10))
+plot(Kest(data_wc.ppp), main="Kest graph")
+```
+
+The Kest graph is also produced from the data, where K-function curves in the above graph represents the data plots are located closure and clustered. r in x-axis represents the latitude and longitude of the plots.
+
+## Analysis of the Bird species diversity in 2013
+   Here the data for 2013 is extracted from the 'data_wc' and the required attributes are given in that data and plotted to visualise the 50 data points.
+```{r}
+data_2013 <- data_wc[which(data_wc$Season == 2013),names(data_wc) %in% c("Season","Name","Altitude","Wood","Total_diversity","Introduced_diversity","Indigenous_diversity","Indigenous_dominance","Long_jittered","Lat_jittered")]
+summary(data_2013)
+plot(shapes, axes=T, asp=1, main="Bird species on public conservation land, estimated diversity 2013")
+plot(data_2013, add=T, col='darkorchid')
+```
+
+### Histogram
+ This gives the accurate representation of the distribution of diversity data. By histogram for the total diversity, introduced diversity and indigeneous diversity are shown. For the analysis, Total_diversity is alone taken as the process is to get to know about the ecosystem from the diversity as a whole.
+```{r}
+hist(data_2013$Total_diversity)
+hist(data_2013$Introduced_diversity)
+hist(data_2013$Indigenous_diversity)
+```
+
+### Variogram
+The description of the spatial continuity of the data is given because this is that it would be able to make a prediction (interpolation) for any location. So for every year it had been made.
+```{r}
+v13=variogram(log(Total_diversity)~1, data_2013, cutoff=48)
+v13.fit=fit.variogram(v13, vgm("Sph"))
+plot(v13, v13.fit)
+```
+
+In the variogram above, it was correlated upto approximately 15 km (as it is based on great circle distances).
+
+### IDW Interpolation 2013
+ IDW interpolation gives weights to sample points, such that the influence of one point on another declines with distance from the new point being estimated. So that IDW interpolation is used for this analysis.
+
+#### Formation of the grid
+ The grid was formed for performing the IDW interpolation
+```{r}
+grd13<- spsample(data_2013, "regular", n=60000)
+gridded(grd13)<- TRUE  # Create SpatialPixel object
+fullgrid(grd13)<- TRUE  # Create SpatialGrid object
+```
+
+The interpolation is formed by giving the total diversity point pattern, so the diversity can be shown for the West Coast State. The masking also done inorder to cover the area. The projection for the mask is set to New Zealand Map Grid (NZMG) for all the years also.
+```{r}
+data_2013.idw <- gstat::idw(Total_diversity~ 1, data_2013, newdata=grd13, idp=2.0)
+
+# create spatial points data frame
+spg <- data_2013.idw
+
+# coerce to SpatialPixelsDataFrame
+gridded(spg) <- TRUE
+fullgrid(spg)<- TRUE
+# coerce to raster
+raster_idw <- raster(spg)
+mask13<- mask(raster_idw, shapes)
+
+# sets projection to New Zealand Map Grid (NZMG)
+projection(mask13) <- CRS("+init=EPSG:27200")
+
+# we can quickly plot the raster to check its okay
+plot(mask13, axes=T, xlim=c(168,173), ylim=c(-47,-40), main="Diversity of Birds species 2013 in the West Coast State")
+```
+
+From the interpolated values, the eastern part of the state has the vast diversity and sparsely in the south central part of the state
+
+#### Three Dimensional plots
+ The 3D plot is also created from the IDW interpolation
+```{r}
+persp(mask13, main="3D plot of interpolated area")
+
+```
+
+ The 3D interactive chart which shows the variation of diversity 2013.
+```{r}
+idw13 <- as.matrix(mask13)
+
+persp3d(idw13, col = "red", main="3D Interactive Chart for year 2013")
+```
+
+## Analysis of the Bird species diversity in 2014
+ The 55 data points are visualised same as the previous year 2013. 
+```{r}
+data_2014 <- data_wc[which(data_wc$Season == 2014),names(data_wc) %in% c("Season","Name","Altitude","Wood","Total_diversity","Introduced_diversity","Indigenous_diversity","Indigenous_dominance","Long_jittered","Lat_jittered")]
+summary(data_2014)
+plot(shapes, axes=T, asp=1, main="Bird species on public conservation land, estimated diversity 2014")
+plot(data_2014, add=T, col='darkorchid')
+```
+
+### Histogram
+Histogram for the total diversity in 2014
+```{r}
+hist(data_2014$Total_diversity)
+```
+
+###Variogram
+ Here the data is correlated upto approximately 40 of distance and then uncorrelated. Thus it is possible to make the interpolation.
+```{r}
+v14=variogram(log(Total_diversity)~1, data_2014, cutoff=320)
+v14.fit=fit.variogram(v14, vgm("Sph"))
+plot(v14, v14.fit)
+```
+
+### IDW Interpolation 2014
+
+#### Formation of the grid
+```{r}
+grd14              <- spsample(data_2014, "regular", n=60000)
+gridded(grd14)     <- TRUE  # Create SpatialPixel object
+fullgrid(grd14)    <- TRUE  # Create SpatialGrid object
+```
+
+Running the idw for total diversity of the data 2014 and masking the boundary.
+```{r}
+data_2014.idw <- gstat::idw(Total_diversity~ 1, data_2014, newdata=grd14, idp=2.0)
+
+# create spatial points data frame
+spg14 <- data_2014.idw
+
+# coerce to SpatialPixelsDataFrame
+gridded(spg14) <- TRUE
+# coerce to raster
+raster_idw14 <- raster(spg14)
+mask14<- mask(raster_idw14, shapes)
+
+# sets projection to New Zealand Map Grid (NZMG)
+projection(mask14) <- CRS("+init=EPSG:27200")
+
+# we can quickly plot the raster to check its okay
+plot(mask14, axes=T, xlim=c(168,173), ylim=c(-47,-40), main="Diversity of Birds species 2014 in the West Coast State")
+```
+
+From the interpolated output, the western and northern part of the West Coast has the more diversity but the number of bird species found in those area are less than the previous year 2013.
+
+ The data is also visualised by the 3D plots in below
+ 
+#### Three Dimensional plots
+ The 3D plot is also created from the IDW interpolation
+```{r}
+persp(mask14, main="3D plot of interpolated area")
+```
+
+  The 3D interactive chart which shows the variation of diversity 2014.
+```{r}
+idw14 <- as.matrix(mask14)
+
+persp3d(idw14, col = "red", main="3D Interactive Chart for year 2014")
+```
+
+## Analysis of the Bird species diversity in 2015
+ The 40 data points are visualised same as before. 
+```{r}
+data_2015 <- data_wc[which(data_wc$Season == 2015),names(data_wc) %in% c("Season","Name","Altitude","Wood","Total_diversity","Introduced_diversity","Indigenous_diversity","Indigenous_dominance","Long_jittered","Lat_jittered")]
+summary(data_2015)
+plot(shapes, axes=T, asp=1, main="Bird species on public conservation land, estimated diversity 2015")
+plot(data_2015, add=T, col='darkorchid')
+```
+
+### Histogram
+Histogram for the total diversity in 2015
+```{r}
+hist(data_2015$Total_diversity)
+```
+
+### Variogram
+ The data is correlated approximately to 50 and the interpolation is possible for this data.
+```{r}
+v15=variogram(log(Total_diversity)~1, data_2015, cutoff=400)
+v15.fit=fit.variogram(v15, vgm("Sph"))
+plot(v15, v15.fit)
+```
+
+### IDW Interpoltion 2015
+
+#### Formation of grid
+```{r}
+grd15              <- spsample(data_2015, "regular", n=60000)
+gridded(grd15)     <- TRUE  # Create SpatialPixel object
+fullgrid(grd15)    <- TRUE  # Create SpatialGrid object
+```
+
+Running the idw for total diversity of the data 2015 and masking the boundary.
+```{r}
+data_2015.idw <- gstat::idw(Total_diversity~ 1, data_2015, newdata=grd15, idp=2.0)
+
+# create spatial points data frame
+spg15 <- data_2015.idw
+
+# coerce to SpatialPixelsDataFrame
+gridded(spg15) <- TRUE
+# coerce to raster
+raster_idw15 <- raster(spg15)
+mask15<- mask(raster_idw15, shapes)
+
+# sets projection to New Zealand Map Grid (NZMG)
+projection(mask15) <- CRS("+init=EPSG:27200")
+
+# we can quickly plot the raster to check its okay
+plot(mask15, main="Diversity of Birds species 2015 in the West Coast State")
+```
+
+From the interpolated values, the southern part has the more diversity when compared with other part and the number of count is even less than the diversity 2014.
+
+### Three Dimensional Plots
+The 3D plot is also created from the IDW interpolation
+```{r}
+persp(mask15, main="3D plot of interpolated area")
+```
+
+  The 3D interactive chart which shows the variation of diversity 2015.
+```{r}
+idw15 <- as.matrix(mask15)
+
+persp3d(idw15, col = "red", main="3D Interactive Chart for year 2015")
+```
+
+## Analysis of the Bird species diversity in 2016
+ The 41 data points are visualised same as the above. 
+```{r}
+data_2016 <- data_wc[which(data_wc$Season == 2016),names(data_wc) %in% c("Season","Name","Altitude","Wood","Total_diversity","Introduced_diversity","Indigenous_diversity","Indigenous_dominance","Long_jittered","Lat_jittered")]
+summary(data_2016)
+plot(shapes, axes=T, asp=1, main="Bird species on public conservation land, estimated diversity 2016")
+plot(data_2016, add=T, col='darkorchid')
+```
+
+### Histogram
+
+```{r}
+hist(data_2016$Total_diversity)
+```
+
+### Variogram
+ The data is correlated upto approximately 20 distance and it can be interpolated for the further process.
+```{r}
+v16=variogram(log(Total_diversity)~1, data_2016)
+v16.fit=fit.variogram(v16, vgm("Sph"))
+plot(v16, v16.fit)
+```
+
+### IDW Interpoltion 2016
+
+#### Formation of grid
+```{r}
+grd16              <- spsample(data_2016, "regular", n=60000)
+gridded(grd16)     <- TRUE  # Create SpatialPixel object
+fullgrid(grd16)    <- TRUE  # Create SpatialGrid object
+```
+
+Running the idw for total diversity of the data 2016 and masking the boundary.
+```{r}
+data_2016.idw <- gstat::idw(Total_diversity~ 1, data_2016, newdata=grd16, idp=2.0)
+
+# create spatial points data frame
+spg16 <- data_2016.idw
+
+# coerce to SpatialPixelsDataFrame
+gridded(spg16) <- TRUE
+fullgrid(spg16)<- TRUE
+# coerce to raster
+raster_idw16 <- raster(spg16)
+mask16<- mask(raster_idw16, shapes)
+
+# sets projection to New Zealand Map Grid (NZMG)
+projection(mask16) <- CRS("+init=EPSG:27200")
+
+# we can quickly plot the raster to check its okay
+plot(mask16, main="Diversity of Birds species 2016 in the West Coast State")
+```
+
+The interpolated value implies that the central part of the state has the more diversity despite the previous case, the number of counts for the bird species increases.
+
+### Three Dimensional Plots
+The 3D plot is also created from the IDW interpolation
+```{r}
+persp(mask16, main="3D plot of interpolated area")
+```
+
+  The 3D interactive chart which shows the variation of diversity 2016.
+```{r}
+idw16 <- as.matrix(mask16)
+
+persp3d(idw16, col = "red", main="3D Interactive Chart for year 2016")
+```
+
+## Discussions and Conclusion
+In this project, the analysis of the bird species diversity has been made for four years. From the histogram output total diversity from 8 to 10 bird species are mostly involved and the it needs to be considered as the average value of the bird species for each year. From the density output, the points are located densely as shown in the density plot. So that the neighbouring points may not vary so much distance. As the locations for the data for each year are different, the density of the data helps in the analysis for each year. Variogarm favours for the interpolation to be done. So IDW interpolation has done here. From the comparison of all the IDW results, the diversity of Bird Species over the eastern part and southern part varies more than the other parts and decreases from 2013 to 2015 and in 2016 the value of diversity increases. Thus more number of bird species flucuating like above. The visualisation is also done with the interactive 3D view. Thus, the ecosystem over the West Coast state of the New Zealand remains to be flucuating as the bird diversity is proportional to the ecosystem.
+
+####future work
+It was also planned to do the forecasting in the prefinal assignment but as the data measured on a five-year rotation cycle. It cannot be done right now but once after getting the data it is easy for the forecasting to be made. Latter on the data is also classified according to the forest and non-forest sites and can make the analysis to bird species.
+
+## References
+  1. Bird Species diversity data (https://data.mfe.govt.nz/table/95338-bird-species-on-public-conservation-land-estimated-diversity-201316/)
+  2. Shape file for New Zealand (https://www.igismap.com/download-free-new-zealand-shapefile-country-boundary-line-polygon-coastline-regions/)
+  3. Spatial Interpolation (https://rspatial.org/analysis/4-interpolation.html)
+
+
